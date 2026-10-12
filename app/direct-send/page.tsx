@@ -12,9 +12,8 @@ const DirectSendPage = () => {
       <section className="space-y-1">
         <h2 className="text-base font-semibold">Send with Cloudflare</h2>
         <p className="text-sm text-muted-foreground">
-          This page sends through Cloudflare Email Sending. It does not use n8n. The from address
-          must be on a domain you already onboarded, such as hello@novachkidev.com. hi@goodmedias.com
-          works after goodmedias.com is onboarded on the same Cloudflare account.
+          This page sends through Cloudflare Email Sending. It does not use n8n. Type the from
+          address yourself. That domain must already be onboarded in Cloudflare Email Sending.
         </p>
       </section>
       <section className="rounded-xl bg-card p-5 ring-1 ring-foreground/10">

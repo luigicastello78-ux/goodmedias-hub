@@ -169,13 +169,10 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     set({ sendersStatus: "loading", sendersError: null });
     try {
       const data = await requestJson<SendersResponse>("/api/n8n/senders");
-      set((state) => ({
+      set({
         senders: data.senders,
         sendersStatus: "ready",
-        composer: state.composer.fromEmail
-          ? state.composer
-          : { ...state.composer, fromEmail: data.senders[0]?.email ?? "" },
-      }));
+      });
     } catch (error) {
       set({ sendersStatus: "error", sendersError: getErrorMessage(error) });
     }
@@ -257,7 +254,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       editedSinceError: false,
       idempotencyKey: null,
       providerMessageId: null,
-      composer: emptyComposer(state.composer.fromEmail),
+      composer: emptyComposer(),
     }));
   },
   showList: () => set({ isComposing: false }),
@@ -277,7 +274,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     if (!isEmail(composer.fromEmail)) {
       set({
         dispatchStatus: "error",
-        dispatchError: "Choose a sender address.",
+        dispatchError: "Enter a valid from address.",
         dispatchRetryable: false,
         editedSinceError: false,
       });

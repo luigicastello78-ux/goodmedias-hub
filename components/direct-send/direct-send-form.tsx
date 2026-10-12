@@ -8,8 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-const SUGGESTED_FROM = ["hello@novachkidev.com", "hi@goodmedias.com"] as const;
-
 interface SendResponse {
   ok: true;
   delivered: string[];
@@ -39,17 +37,13 @@ const successMessage = (result: SendResponse): string => {
 };
 
 export const DirectSendForm = () => {
-  const [fromEmail, setFromEmail] = useState("hello@novachkidev.com");
+  const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
   const [toEmail, setToEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [feedback, setFeedback] = useState("");
-
-  const handlePickFrom = (address: string) => {
-    setFromEmail(address);
-  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -97,20 +91,7 @@ export const DirectSendForm = () => {
           required
           value={fromEmail}
           onChange={(event) => setFromEmail(event.target.value)}
-          placeholder="hello@novachkidev.com"
         />
-        <div className="flex flex-wrap gap-2">
-          {SUGGESTED_FROM.map((address) => (
-            <Button
-              key={address}
-              type="button"
-              variant={fromEmail === address ? "default" : "outline"}
-              onClick={() => handlePickFrom(address)}
-            >
-              {address}
-            </Button>
-          ))}
-        </div>
       </div>
 
       <div className="space-y-2">
@@ -120,7 +101,6 @@ export const DirectSendForm = () => {
           name="fromName"
           value={fromName}
           onChange={(event) => setFromName(event.target.value)}
-          placeholder="Goodmedias"
           maxLength={120}
         />
       </div>
@@ -135,7 +115,6 @@ export const DirectSendForm = () => {
           required
           value={toEmail}
           onChange={(event) => setToEmail(event.target.value)}
-          placeholder="recipient@example.com"
         />
       </div>
 
@@ -147,7 +126,6 @@ export const DirectSendForm = () => {
           required
           value={subject}
           onChange={(event) => setSubject(event.target.value)}
-          placeholder="Hello"
           maxLength={200}
         />
       </div>
@@ -160,7 +138,6 @@ export const DirectSendForm = () => {
           required
           value={bodyText}
           onChange={(event) => setBodyText(event.target.value)}
-          placeholder="Write the email"
           className="min-h-40"
         />
       </div>

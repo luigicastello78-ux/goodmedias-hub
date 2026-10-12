@@ -12,22 +12,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { insertAtCursor, restoreCursor } from "@/lib/insert-text";
 import { useInboxStore } from "@/stores/inbox-store";
 
 export const Composer = () => {
   const composer = useInboxStore((state) => state.composer);
-  const senders = useInboxStore((state) => state.senders);
-  const sendersStatus = useInboxStore((state) => state.sendersStatus);
-  const sendersError = useInboxStore((state) => state.sendersError);
   const contactFields = useInboxStore((state) => state.contactFields);
   const dispatchStatus = useInboxStore((state) => state.dispatchStatus);
   const dispatchError = useInboxStore((state) => state.dispatchError);
@@ -38,7 +28,6 @@ export const Composer = () => {
   const selectedThreadId = useInboxStore((state) => state.selectedThreadId);
   const updateComposer = useInboxStore((state) => state.updateComposer);
   const sendManual = useInboxStore((state) => state.sendManual);
-  const fetchSenders = useInboxStore((state) => state.fetchSenders);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const focusedField = useRef<"subject" | "body">("body");
@@ -82,35 +71,14 @@ export const Composer = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="composer-from">From</Label>
-          {senders.length > 0 ? (
-            <Select
-              value={composer.fromEmail}
-              onValueChange={(value) => updateComposer({ fromEmail: value })}
-              disabled={locked}
-            >
-              <SelectTrigger id="composer-from" className="w-full">
-                <SelectValue placeholder="Choose a sender" />
-              </SelectTrigger>
-              <SelectContent>
-                {senders.map((sender) => (
-                  <SelectItem key={sender.email} value={sender.email}>
-                    {sender.name ? `${sender.name} <${sender.email}>` : sender.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              id="composer-from"
-              type="email"
-              autoComplete="email"
-              value={composer.fromEmail}
-              disabled={locked || sendersStatus === "loading"}
-              aria-invalid={sendersStatus === "error"}
-              onChange={(event) => updateComposer({ fromEmail: event.target.value })}
-              placeholder={sendersStatus === "loading" ? "Loading senders…" : "sender@company.com"}
-            />
-          )}
+          <Input
+            id="composer-from"
+            type="email"
+            autoComplete="off"
+            value={composer.fromEmail}
+            disabled={locked}
+            onChange={(event) => updateComposer({ fromEmail: event.target.value })}
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="composer-to">To</Label>
@@ -121,23 +89,9 @@ export const Composer = () => {
             value={composer.toEmail}
             disabled={locked}
             onChange={(event) => updateComposer({ toEmail: event.target.value })}
-            placeholder="name@company.com"
           />
         </div>
       </div>
-
-      {sendersError ? (
-        <StatusAlert
-          variant="destructive"
-          title="Senders unavailable"
-          message={sendersError}
-          action={
-            <Button type="button" size="sm" variant="outline" onClick={() => void fetchSenders()}>
-              Retry
-            </Button>
-          }
-        />
-      ) : null}
 
       <div className="space-y-1.5">
         <Label htmlFor="composer-subject">Subject</Label>
