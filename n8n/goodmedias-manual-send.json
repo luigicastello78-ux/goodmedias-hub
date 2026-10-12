@@ -1,0 +1,160 @@
+{
+  "name": "Goodmedias Hub — Manual Send",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Goodmedias Hub manual send\n\nPOST JSON to this webhook. The workflow sends it through the **Send Email** (SMTP) node, then answers with the JSON the hub expects.\n\n### 1. Credentials (required before publish)\n- **Header Auth**, name exactly `Goodmedias Webhook Secret`\n  - Header name: `X-Webhook-Secret`\n  - Header value: the same value as `N8N_WEBHOOK_SECRET` in the hub\n- **SMTP**, name exactly `Goodmedias SMTP`\n  - The SMTP account must be allowed to send as `from.email`\n\n### 2. URLs\n- Test: `https://<n8n-host>/webhook-test/goodmedias/manual-send`\n- Production (set `N8N_MANUAL_SEND_URL` to this): `https://<n8n-host>/webhook/goodmedias/manual-send`\n\nClick **Listen for test event** before calling the test URL. **Publish** the workflow before calling the production URL.\n\n### 3. Body the hub sends\n```json\n{\n  \"idempotencyKey\": \"11111111-1111-4111-8111-111111111111\",\n  \"requestedAt\": \"2026-10-12T15:00:00.000Z\",\n  \"from\": { \"email\": \"alex@goodmedias.com\", \"name\": \"Alex\" },\n  \"to\": { \"email\": \"sam@contoso.com\", \"name\": \"Sam\" },\n  \"subject\": \"Quick question\",\n  \"bodyText\": \"Hi Sam\",\n  \"bodyHtml\": \"<p>Hi Sam</p>\",\n  \"thread\": { \"threadId\": \"thread_demo\" }\n}\n```\n`bodyHtml`, `from.name`, `to.name`, and `thread.threadId` are optional.\n\nA flat test body also works: `{ \"from\": \"a@x.com\", \"to\": \"b@y.com\", \"subject\": \"Hi\", \"text\": \"Hello\" }`.\n\n### 4. Success response\n`{ \"ok\": true, \"status\": \"sent\", \"idempotencyKey\", \"providerMessageId\", \"threadId\" }`\n\nSMTP does not set `In-Reply-To` or `References`, so each send is a new message rather than a threaded reply.",
+        "height": 760,
+        "width": 460,
+        "color": 4
+      },
+      "id": "1d7b3c55-9a0e-4f62-8c14-2e5a6b7c8d9e",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "goodmedias/manual-send",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6f2c8a14-1b7e-4c3d-9a55-0e8f1d2c3b4a",
+      "name": "Receive Email Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "9b1e4c70-2a6d-4f18-8c33-5d7e9a0b1c2d",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Goodmedias Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const incoming = $input.first().json;\nconst raw = incoming.body ?? incoming;\n\nconst readAddress = (value, fallbackName) => {\n  if (typeof value === 'string') {\n    return { email: value.trim(), name: fallbackName };\n  }\n  if (value && typeof value === 'object') {\n    return {\n      email: String(value.email ?? '').trim(),\n      name: value.name ? String(value.name).trim() : undefined,\n    };\n  }\n  return { email: '', name: undefined };\n};\n\nconst formatAddress = (address) => {\n  if (address.name) {\n    const safeName = address.name.replace(/[<>]/g, '').trim();\n    if (safeName) {\n      return `${safeName} <${address.email}>`;\n    }\n  }\n  return address.email;\n};\n\nconst from = readAddress(raw.from, raw.fromName);\nconst to = readAddress(raw.to, raw.toName);\nconst subject = String(raw.subject ?? '').trim();\nconst text = String(raw.bodyText ?? raw.text ?? raw.body ?? '').trim();\nconst htmlInput = String(raw.bodyHtml ?? raw.html ?? '').trim();\nconst idempotencyKey = String(raw.idempotencyKey ?? raw.id ?? `manual-${Date.now()}`);\nconst threadId =\n  (raw.thread && raw.thread.threadId) ||\n  raw.threadId ||\n  `thread_${idempotencyKey.slice(0, 8)}`;\n\nconst missing = [];\nif (!from.email) missing.push('from.email');\nif (!to.email) missing.push('to.email');\nif (!subject) missing.push('subject');\nif (!text && !htmlInput) missing.push('bodyText');\n\nif (missing.length > 0) {\n  throw new Error(`Missing required email fields: ${missing.join(', ')}`);\n}\n\nconst html =\n  htmlInput ||\n  text\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\\n/g, '<br>');\n\nreturn [\n  {\n    json: {\n      idempotencyKey,\n      threadId: String(threadId),\n      fromEmail: formatAddress(from),\n      toEmail: formatAddress(to),\n      replyTo: from.email,\n      subject,\n      text: text || htmlInput.replace(/<[^>]+>/g, ' '),\n      html,\n      ccEmail: raw.cc ? String(raw.cc) : '',\n      bccEmail: raw.bcc ? String(raw.bcc) : '',\n    },\n  },\n];"
+      },
+      "id": "c4e8a912-6b31-4d70-9f25-7a1c0e5d8b44",
+      "name": "Prepare Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "={{ $json.fromEmail }}",
+        "toEmail": "={{ $json.toEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "={{ $json.replyTo }}",
+          "ccEmail": "={{ $json.ccEmail }}",
+          "bccEmail": "={{ $json.bccEmail }}"
+        }
+      },
+      "id": "3a8d5e21-7c4b-4e90-b612-8f0a1c2d3e4f",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        300
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "Goodmedias SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, status: 'sent', idempotencyKey: $('Prepare Email').item.json.idempotencyKey, providerMessageId: $json.messageId || ('<' + $('Prepare Email').item.json.idempotencyKey + '@goodmedias>'), threadId: $('Prepare Email').item.json.threadId }) }}",
+        "options": {
+          "responseCode": 200,
+          "enableStreaming": false,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8c4f1a90-5e2b-4d73-a814-6b9c0d1e2f3a",
+      "name": "Respond to Hub",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        840,
+        300
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Email Request": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Respond to Hub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

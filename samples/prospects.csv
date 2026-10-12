@@ -1,0 +1,11 @@
+first_name,last_name,email,company,city
+Ava,Nguyen,ava@northwind.test,Northwind,Seattle
+Liam,Patel,liam@contoso.test,Contoso,Austin
+Ava,Nguyen,ava@northwind.test,Northwind,Seattle
+Noah,Kim,not-an-email,Fabrikam,Chicago
+Mia,Ross,mia@adventure.test,"Adventure Works, Inc.",Denver
+Sam,Blocked,sam@reject.test,Blocked Co,Boston
+Elena,Voss,elena@fabrikam.test,Fabrikam,Chicago
+Jonah,Reed,jonah@wideworld.test,Wide World Importers,Portland
+Priya,Shah,priya@litware.test,Litware,London
+Owen,Brooks,owen@alpine.test,Alpine Ski House,Denver

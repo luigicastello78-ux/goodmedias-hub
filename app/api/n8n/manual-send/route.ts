@@ -1,0 +1,16 @@
+import { toErrorResponse } from "@/lib/api-error";
+import { jsonResponse } from "@/lib/http";
+import { manualSend } from "@/lib/n8n-client";
+import { parseBody, readJson } from "@/lib/read-json";
+import { manualSendRequestSchema } from "@/lib/schemas";
+
+export const POST = async (request: Request): Promise<Response> => {
+  try {
+    const json = await readJson(request);
+    const payload = parseBody(manualSendRequestSchema, json);
+    const result = await manualSend(payload);
+    return jsonResponse(result);
+  } catch (error) {
+    return toErrorResponse(error);
+  }
+};
