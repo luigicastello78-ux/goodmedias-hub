@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, Mail, Megaphone } from "lucide-react";
+import { Inbox, Mail, Megaphone, UserRound, Users } from "lucide-react";
 
 import { cn } from "cn";
 
 const NAV_ITEMS = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/sent", label: "Sent", icon: Mail },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { href: "/direct-send", label: "Direct send", icon: Mail },
+  { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/account", label: "Account", icon: UserRound },
 ] as const;
 
 export const SidebarNav = ({ onNavigate }: { onNavigate?: () => void }) => {
@@ -18,12 +20,13 @@ export const SidebarNav = ({ onNavigate }: { onNavigate?: () => void }) => {
   return (
     <nav aria-label="Primary" className="flex flex-col gap-1">
       {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
           <Link
             key={item.href}
             href={item.href}
+            prefetch={item.href === "/account" ? false : undefined}
             aria-current={active ? "page" : undefined}
             onClick={onNavigate}
             className={cn(

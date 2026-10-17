@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
-  reactCompiler: true,
+  serverExternalPackages: ["pg"],
   turbopack: {
     rules: {
       "*.css": {

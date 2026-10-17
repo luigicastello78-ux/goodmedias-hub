@@ -1,14 +1,18 @@
 import "server-only";
 
+import path from "node:path";
+
 export interface AppEnv {
   N8N_MODE: "live" | "fixture";
   N8N_WEBHOOK_SECRET: string;
   N8N_MANUAL_SEND_URL: string;
   N8N_BULK_INGEST_URL: string;
+  N8N_BULK_SEND_URL: string;
   N8N_INBOX_URL: string;
   N8N_THREAD_URL: string;
   N8N_SENDERS_URL: string;
   N8N_TIMEOUT_MS: number;
+  BULK_DB_PATH: string;
 }
 
 let cached: AppEnv | null = null;
@@ -32,16 +36,24 @@ export const getEnv = (): AppEnv => {
     throw new Error("N8N_MODE must be live or fixture.");
   }
 
+  const configuredDbPath = process.env.BULK_DB_PATH?.trim();
+
   cached = {
     N8N_MODE: mode,
     N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET ?? "",
     N8N_MANUAL_SEND_URL: process.env.N8N_MANUAL_SEND_URL ?? "",
     N8N_BULK_INGEST_URL: process.env.N8N_BULK_INGEST_URL ?? "",
+    N8N_BULK_SEND_URL: process.env.N8N_BULK_SEND_URL ?? "",
     N8N_INBOX_URL: process.env.N8N_INBOX_URL ?? "",
     N8N_THREAD_URL: process.env.N8N_THREAD_URL ?? "",
     N8N_SENDERS_URL: process.env.N8N_SENDERS_URL ?? "",
     N8N_TIMEOUT_MS: readTimeout(),
+    BULK_DB_PATH: configuredDbPath || path.join(process.cwd(), "data", "goodmedias.sqlite"),
   };
 
   return cached;
+};
+
+export const resetEnvCache = (): void => {
+  cached = null;
 };

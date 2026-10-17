@@ -6,9 +6,9 @@ import { ApiError } from "@/lib/api-error";
 import { MAX_JSON_BYTES } from "@/lib/constants";
 import { firstIssueMessage } from "@/lib/schemas";
 
-export const readJson = async (request: Request): Promise<unknown> => {
+export const readJson = async (request: Request, maxBytes = MAX_JSON_BYTES): Promise<unknown> => {
   const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_JSON_BYTES) {
+  if (new TextEncoder().encode(raw).byteLength > maxBytes) {
     throw new ApiError(413, "VALIDATION", "Payload is too large.", false);
   }
 

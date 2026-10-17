@@ -17,13 +17,33 @@ import {
 const PAGE_TITLES: Record<string, string> = {
   "/inbox": "Inbox",
   "/campaigns": "Campaigns",
-  "/direct-send": "Direct send",
+  "/contacts": "Contacts",
+  "/sent": "Sent",
+};
+
+const titleForPath = (pathname: string): string => {
+  if (pathname.startsWith("/bulk-send/jobs/")) {
+    return "Bulk job";
+  }
+  if (pathname.startsWith("/bulk-send")) {
+    return "Bulk send";
+  }
+  if (pathname.startsWith("/sent/")) {
+    return "Sent message";
+  }
+  if (pathname.startsWith("/campaigns/batches/")) {
+    return "Campaign batch";
+  }
+  if (pathname.startsWith("/campaigns/batches")) {
+    return "Campaign batches";
+  }
+  return PAGE_TITLES[pathname] ?? "goodmedias hub";
 };
 
 export const Header = () => {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const title = PAGE_TITLES[pathname] ?? "goodmedias hub";
+  const title = titleForPath(pathname);
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:px-6">

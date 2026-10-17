@@ -1,0 +1,105 @@
+{
+  "name": "Goodmedias Hub — Campaign clock",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Campaign clock\n\nImport this workflow and publish it. Every minute it asks the hub to release due drip contacts and to post due follow-up emails to the manual-send webhook.\n\nSet two n8n environment variables:\n- `GOODMEDIAS_HUB_URL` — the hub origin, with no trailing slash\n- `N8N_WEBHOOK_SECRET` — the same value as the hub\n\nThe hub stores the sequence. This workflow only wakes it.",
+        "height": 280,
+        "width": 420,
+        "color": 4
+      },
+      "id": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, 80]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "b2c3d4e5-f6a7-4890-b123-456789abcdef",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [480, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GOODMEDIAS_HUB_URL}}/api/distribution/process-drip",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-4901-c234-56789abcdef0",
+      "name": "Release drip contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GOODMEDIAS_HUB_URL}}/api/campaigns/process-queue",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4e5f6a7-b8c9-4012-d345-6789abcdef01",
+      "name": "Post due follow-ups",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 280]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Release drip contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release drip contacts": {
+      "main": [
+        [
+          {
+            "node": "Post due follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

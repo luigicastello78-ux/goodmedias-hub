@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 import { CampaignStepper } from "@/components/campaigns/campaign-stepper";
 import { ColumnMapper } from "@/components/campaigns/column-mapper";
@@ -75,6 +76,11 @@ export const CampaignWorkspace = () => {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-8">
+      <div className="flex justify-end">
+        <Button variant="outline" asChild>
+          <Link href="/campaigns/batches">Past batches</Link>
+        </Button>
+      </div>
       {lastResult ? (
         <StatusAlert
           title="Campaign queued"
