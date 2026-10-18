@@ -1,5 +1,6 @@
 import { toErrorResponse } from "@/lib/api-error";
 import { processDueQueue } from "@/lib/campaign-sequence";
+import { processDripDistributions } from "@/lib/distribution";
 import { getEnv } from "@/lib/env";
 import { jsonResponse } from "@/lib/http";
 import { secretsMatch } from "@/lib/webhook-secret";
@@ -11,8 +12,9 @@ export const POST = async (request: Request): Promise<Response> => {
   }
 
   try {
+    const released = await processDripDistributions();
     const processed = await processDueQueue();
-    return jsonResponse({ ok: true, processed });
+    return jsonResponse({ ok: true, released, processed });
   } catch (error) {
     return toErrorResponse(error);
   }
