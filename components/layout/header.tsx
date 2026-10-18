@@ -15,10 +15,11 @@ import {
 } from "@/components/ui/sheet";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/inbox": "Inbox",
   "/campaigns": "Campaigns",
   "/contacts": "Contacts",
   "/sent": "Sent",
+  "/distribution": "Distribution",
+  "/account": "Account",
 };
 
 const titleForPath = (pathname: string): string => {
@@ -46,7 +47,7 @@ export const Header = () => {
   const title = titleForPath(pathname);
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:px-6">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card/80 px-4 backdrop-blur-sm md:px-6">
       <Sheet open={open} onOpenChange={setOpen}>
         <Button
           type="button"

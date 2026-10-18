@@ -227,6 +227,18 @@ export const listOutboundMessages = async (limit = 50): Promise<OutboundMessage[
   return rows.map(toMessage);
 };
 
+export const listOutboundMessagesPaginated = async (
+  limit: number,
+  offset: number,
+): Promise<{ messages: OutboundMessage[]; total: number }> => {
+  const db = await getDb();
+  const { total } = (await db.prepare("SELECT COUNT(*) AS total FROM outbound_messages").get()) as { total: number };
+  const rows = (await db
+    .prepare("SELECT * FROM outbound_messages ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
+    .all(limit, offset)) as OutboundRow[];
+  return { messages: rows.map(toMessage), total };
+};
+
 export const getOutboundMessage = async (id: string): Promise<OutboundMessage> => {
   const row = await findRow(await getDb(), id);
   if (!row) {
