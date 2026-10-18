@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+// Production deploy marker. Keeps the latest Vercel build in sync with this commit.
+
 const nextConfig: NextConfig = {
   async redirects() {
     return [
