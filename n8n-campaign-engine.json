@@ -1,0 +1,376 @@
+{
+  "id": "gm-campaign-engine",
+  "name": "Goodmedias Hub - Campaign Engine",
+  "active": false,
+  "createdAt": "2026-10-18T00:00:00.000Z",
+  "updatedAt": "2026-10-18T00:00:00.000Z",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Campaign Email Sender\n\nReceives email send requests from Goodmedias Hub campaigns and sends via Gmail OAuth2.\n\n**Setup:**\n1. Create a Header Auth credential: Name = X-Webhook-Secret, Value = your secret\n2. Create a Gmail OAuth2 credential and authenticate\n3. Assign both credentials to the nodes below\n4. In .env.local set:\n   N8N_MODE=live\n   N8N_WEBHOOK_SECRET=same_secret\n   N8N_MANUAL_SEND_URL=https://your-n8n.com/webhook/campaign-send",
+        "height": 380,
+        "width": 460,
+        "color": 4
+      },
+      "id": "note-sender",
+      "name": "Note Sender",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 80]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "campaign-send",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-send",
+      "name": "Campaign Send Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [160, 520],
+      "webhookId": "d3f8a2b1-4c9e-4a7d-b5f6-000000000001",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Goodmedias Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst hasHtml = body.bodyHtml && body.bodyHtml.trim().length > 0;\n\nlet message;\nif (hasHtml) {\n  message = body.bodyHtml;\n} else {\n  message = body.bodyText\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\\n/g, '<br>');\n}\n\nreturn [{\n  json: {\n    to: body.to.email,\n    toName: body.to.name || '',\n    subject: body.subject,\n    message: message,\n    senderName: body.from.name || '',\n    fromEmail: body.from.email,\n    idempotencyKey: body.idempotencyKey\n  }\n}];"
+      },
+      "id": "prepare-email",
+      "name": "Prepare Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, 520]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.message }}",
+        "options": {
+          "senderName": "={{ $json.senderName }}"
+        }
+      },
+      "id": "send-gmail",
+      "name": "Send via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [600, 520],
+      "continueOnFail": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-gmail-ok",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-gmail",
+      "name": "Gmail OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Prepare Email').first().json;\nconst gmail = $input.first().json;\nconst msgId = gmail.id || prepared.idempotencyKey;\n\nreturn [{\n  json: {\n    ok: true,\n    status: 'sent',\n    idempotencyKey: prepared.idempotencyKey,\n    providerMessageId: '<' + msgId + '@mail.gmail.com>',\n    threadId: gmail.threadId || ('thread_' + prepared.idempotencyKey.slice(0, 8))\n  }\n}];"
+      },
+      "id": "format-success",
+      "name": "Format Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1280, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const err = $input.first().json;\nconst msg = err.message || err.error || 'Gmail send failed';\n\nreturn [{\n  json: {\n    ok: false,\n    error: {\n      code: 'UPSTREAM',\n      message: typeof msg === 'string' ? msg : JSON.stringify(msg),\n      retryable: true\n    }\n  }\n}];"
+      },
+      "id": "format-error",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 640]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "respond-502",
+      "name": "Respond 502",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1280, 640]
+    },
+    {
+      "parameters": {
+        "content": "## Queue Processor\n\nRuns every 2 minutes to tell the app to dispatch scheduled campaign emails.\nEach dispatched email triggers the Campaign Send webhook above.\n\n**Setup:**\n1. Replace YOUR_APP_URL with your Goodmedias Hub URL\n2. Replace YOUR_WEBHOOK_SECRET with the same secret from .env.local\n3. Activate this workflow",
+        "height": 300,
+        "width": 460,
+        "color": 5
+      },
+      "id": "note-queue",
+      "name": "Note Queue",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 800]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [160, 1160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://goodmedias-hub.vercel.app/api/campaigns/process-queue",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "iPYmchOJ8Duqd_3mO5UQ-iEjxfpY0sBjwRD6zR2p8WA"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-process-queue",
+      "name": "Process Due Queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [380, 1160]
+    },
+    {
+      "parameters": {
+        "content": "## Senders List\n\nReturns sender email addresses the app shows in the Compose dropdown.\n\n**Setup:**\n1. Edit the Return Senders code node with your Gmail addresses\n2. Assign the same Header Auth credential\n3. Set N8N_SENDERS_URL in .env.local to:\n   https://your-n8n.com/webhook/senders",
+        "height": 260,
+        "width": 460,
+        "color": 6
+      },
+      "id": "note-senders",
+      "name": "Note Senders",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 1320]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "senders",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-senders",
+      "name": "Senders Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [160, 1640],
+      "webhookId": "d3f8a2b1-4c9e-4a7d-b5f6-000000000002",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Goodmedias Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Configure your sender addresses here.\n// Each must be your Gmail address or a Send mail as alias.\nconst senders = [\n  { email: 'your-email@gmail.com', name: 'Your Name' }\n];\n\nreturn [{ json: { ok: true, senders: senders } }];"
+      },
+      "id": "return-senders",
+      "name": "Return Senders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, 1640]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-senders",
+      "name": "Senders 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [600, 1640]
+    }
+  ],
+  "connections": {
+    "Campaign Send Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email": {
+      "main": [
+        [
+          {
+            "node": "Send via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via Gmail": {
+      "main": [
+        [
+          {
+            "node": "Gmail OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail OK": {
+      "main": [
+        [
+          {
+            "node": "Format Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Success": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Respond 502",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Process Due Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Senders Webhook": {
+      "main": [
+        [
+          {
+            "node": "Return Senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Senders": {
+      "main": [
+        [
+          {
+            "node": "Senders 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1",
+  "tags": []
+}

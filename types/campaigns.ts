@@ -34,6 +34,7 @@ export interface CampaignSummary {
   senderName: string | null;
   enrolledCount: number;
   sentCount: number;
+  stepCount: number;
   createdAt: string;
   updatedAt: string;
 }

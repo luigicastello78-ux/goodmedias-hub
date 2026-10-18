@@ -162,9 +162,9 @@ export const createPerson = async (fields: PersonFields): Promise<Person> => {
 
 export interface UpdatePersonFields extends PersonFields {
   tags?: string[] | null;
-  advertiser?: string;
-  jobBoard?: string;
-  industry?: string;
+  advertiser?: string | null;
+  jobBoard?: string | null;
+  industry?: string | null;
 }
 
 export const updatePerson = async (id: string, fields: UpdatePersonFields): Promise<Person> => {

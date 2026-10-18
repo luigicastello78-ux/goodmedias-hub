@@ -501,7 +501,7 @@ export const DistributionWorkspace = () => {
                 <p className="text-[15px] text-muted-foreground mb-6">
                   Contacts have been distributed to <strong>{selectedCampaign?.name}</strong>
                 </p>
-                {executionResult.distribution && (
+                {!!executionResult.distribution && (
                   <div className="max-w-md mx-auto bg-muted/50 rounded-lg p-4 border border-border text-left space-y-2">
                     <p className="text-[14px] text-foreground">
                       <strong>Total:</strong> {(executionResult.distribution as Record<string, number>).totalContacts ?? 0}

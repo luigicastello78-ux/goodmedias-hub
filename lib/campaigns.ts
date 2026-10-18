@@ -24,6 +24,7 @@ interface CampaignRow {
   started_at: unknown;
   enrolled_count?: number;
   sent_count?: number;
+  step_count?: number;
   created_at: unknown;
   updated_at: unknown;
 }
@@ -69,7 +70,8 @@ const toStep = (row: StepRow): CampaignStep => ({
 const summarySelect = `
   SELECT campaigns.*,
     (SELECT COUNT(*) FROM campaign_contacts WHERE campaign_id = campaigns.id) AS enrolled_count,
-    (SELECT COUNT(*) FROM message_queue WHERE campaign_id = campaigns.id AND status = 'sent') AS sent_count
+    (SELECT COUNT(*) FROM message_queue WHERE campaign_id = campaigns.id AND status = 'sent') AS sent_count,
+    (SELECT COUNT(*) FROM campaign_sequences WHERE campaign_id = campaigns.id) AS step_count
   FROM campaigns
 `;
 
@@ -82,6 +84,7 @@ const toSummary = (row: CampaignRow): CampaignSummary => ({
   senderName: row.sender_name,
   enrolledCount: Number(row.enrolled_count ?? 0),
   sentCount: Number(row.sent_count ?? 0),
+  stepCount: Number(row.step_count ?? 0),
   createdAt: asIso(row.created_at) ?? "",
   updatedAt: asIso(row.updated_at) ?? "",
 });
