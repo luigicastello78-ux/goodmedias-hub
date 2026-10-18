@@ -31,6 +31,10 @@ export const personSchema = z.object({
   status: z.enum(["active", "inactive", "lead", "customer"]).nullable().optional(),
   source: z.string().max(80).nullable().optional(),
   notes: z.string().max(4000).nullable().optional(),
+  tags: z.array(z.string().max(60)).max(20).nullable().optional(),
+  advertiser: z.string().max(160).nullable().optional(),
+  jobBoard: z.string().max(160).nullable().optional(),
+  industry: z.string().max(160).nullable().optional(),
 });
 
 export const enrollSchema = z.object({

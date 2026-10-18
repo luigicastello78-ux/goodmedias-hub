@@ -81,6 +81,10 @@ export interface Person {
   status: ContactStatus;
   source: string | null;
   notes: string | null;
+  tags: string[] | null;
+  advertiser: string | null;
+  jobBoard: string | null;
+  industry: string | null;
   createdAt: string;
 }
 

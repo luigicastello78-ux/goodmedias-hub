@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, Mail, Megaphone, UserRound, Users } from "lucide-react";
+import { Inbox, Mail, Megaphone, Upload, UserRound, Users } from "lucide-react";
 
 import { cn } from "cn";
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/sent", label: "Sent", icon: Mail },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/distribution", label: "Distribution", icon: Upload },
   { href: "/account", label: "Account", icon: UserRound },
 ] as const;
 

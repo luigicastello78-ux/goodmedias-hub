@@ -1,371 +1,391 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { StatusAlert } from "@/components/status-alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import { getErrorMessage, requestJson } from "@/lib/api-client";
-import { fieldByNormalizedName } from "@/lib/bulk-contacts";
-import { parseCsvFile } from "@/lib/csv";
-import { isEmail } from "@/lib/email";
-import type { CampaignSummary, ContactStatus, Person } from "@/types/campaigns";
-
-const statuses: ContactStatus[] = ["active", "inactive", "lead", "customer"];
-
-const emptyForm = {
-  email: "",
-  firstName: "",
-  lastName: "",
-  company: "",
-  phone: "",
-  jobTitle: "",
-  status: "active" as ContactStatus,
-  source: "",
-  notes: "",
-};
+import { useEffect, useRef, useState } from "react";
+import {
+  Upload,
+  Search,
+  Plus,
+  Trash2,
+  Edit,
+  Filter,
+  Download,
+  AlertCircle,
+  MoreVertical,
+} from "lucide-react";
+import type { Person } from "@/types/campaigns";
+import { ContactModal } from "./contact-modal";
+import { ImportContactsModal } from "./import-contacts-modal";
+import { AddToCampaignModal } from "./add-to-campaign-modal";
 
 export const ContactsWorkspace = () => {
-  const [contacts, setContacts] = useState<Person[] | null>(null);
-  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
-  const [query, setQuery] = useState("");
-  const [searched, setSearched] = useState("");
-  const [form, setForm] = useState(emptyForm);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [campaignId, setCampaignId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [importKey, setImportKey] = useState(0);
-
-  const load = async (search = query): Promise<void> => {
-    const [people, campaignData] = await Promise.all([
-      requestJson<{ ok: true; contacts: Person[] }>(`/api/contacts?q=${encodeURIComponent(search)}`),
-      requestJson<{ ok: true; campaigns: CampaignSummary[] }>("/api/campaigns"),
-    ]);
-    setContacts(people.contacts);
-    setCampaigns(campaignData.campaigns.filter((campaign) => campaign.status === "active" || campaign.status === "paused"));
-    setSearched(search.trim());
-  };
+  const [contacts, setContacts] = useState<Person[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [editingContact, setEditingContact] = useState<Person | null>(null);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [showAddToCampaignModal, setShowAddToCampaignModal] = useState(false);
+  const [showBulkAddToCampaignModal, setShowBulkAddToCampaignModal] = useState(false);
+  const [selectedContactForCampaign, setSelectedContactForCampaign] = useState<Person | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [totalContacts, setTotalContacts] = useState(0);
+  const [pageSize, setPageSize] = useState(100);
+  const [currentPage, setCurrentPage] = useState(1);
+  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const totalPages = Math.max(1, Math.ceil(totalContacts / pageSize));
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [people, campaignData] = await Promise.all([
-          requestJson<{ ok: true; contacts: Person[] }>("/api/contacts?q="),
-          requestJson<{ ok: true; campaigns: CampaignSummary[] }>("/api/campaigns"),
-        ]);
-        if (!cancelled) {
-          setContacts(people.contacts);
-          setCampaigns(campaignData.campaigns.filter((campaign) => campaign.status === "active" || campaign.status === "paused"));
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(getErrorMessage(loadError));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void fetchContacts();
+  }, [filterStatus, searchQuery, pageSize, currentPage]);
 
-  const handleSearch = (): void => {
-    setError(null);
-    void load(query).catch((loadError: unknown) => setError(getErrorMessage(loadError)));
+  const fetchContacts = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        q: searchQuery,
+        status: filterStatus,
+        page: String(currentPage),
+        pageSize: String(pageSize),
+      });
+      const res = await fetch(`/api/contacts?${params}`);
+      const data = await res.json();
+      if (data.ok) {
+        setContacts(data.contacts ?? []);
+        setTotalContacts(data.total ?? 0);
+      } else {
+        setContacts([]);
+        setTotalContacts(0);
+      }
+    } catch {
+      setContacts([]);
+      setTotalContacts(0);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEdit = (person: Person): void => {
-    setEditingId(person.id);
-    setNotice(null);
-    setError(null);
-    setForm({
-      email: person.email,
-      firstName: person.firstName ?? "",
-      lastName: person.lastName ?? "",
-      company: person.company ?? "",
-      phone: person.phone ?? "",
-      jobTitle: person.jobTitle ?? "",
-      status: person.status,
-      source: person.source ?? "",
-      notes: person.notes ?? "",
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+    setSelectedContacts(new Set());
+  };
+
+  const escapeCsv = (v: string | null | undefined) => {
+    const s = v ?? "";
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+
+  const buildCsv = (rows: Person[]) => {
+    const header = ["First Name", "Last Name", "Email", "Phone", "Company", "Job Title", "Advertiser", "Job Board", "Source"];
+    const lines = rows.map((c) =>
+      [c.firstName, c.lastName, c.email, c.phone, c.company, c.jobTitle, c.advertiser, c.jobBoard, c.source]
+        .map(escapeCsv)
+        .join(","),
+    );
+    return [header.map(escapeCsv).join(","), ...lines].join("\n");
+  };
+
+  const downloadCsv = (csv: string, prefix: string) => {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${prefix}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSelectContact = (id: string) => {
+    setSelectedContacts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
-  const handleCancelEdit = (): void => {
-    setEditingId(null);
-    setForm(emptyForm);
-  };
-
-  const handleSave = async (): Promise<void> => {
-    if (!isEmail(form.email)) {
-      setError("Enter a valid email address.");
-      setNotice(null);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      if (editingId) {
-        await requestJson(`/api/contacts/${editingId}`, { method: "PATCH", body: JSON.stringify(form) });
-      } else {
-        await requestJson("/api/contacts", { method: "POST", body: JSON.stringify(form) });
-      }
-      setForm(emptyForm);
-      setEditingId(null);
-      await load(searched);
-      setNotice("Contact saved.");
-    } catch (saveError) {
-      setError(getErrorMessage(saveError));
-    } finally {
-      setBusy(false);
+  const handleSelectAll = () => {
+    if (selectedContacts.size === contacts.length && contacts.length > 0) {
+      setSelectedContacts(new Set());
+    } else {
+      setSelectedContacts(new Set(contacts.map((c) => c.id)));
     }
   };
 
-  const handleImport = async (file: File | undefined): Promise<void> => {
-    if (!file) {
-      return;
-    }
-    setError(null);
-    setNotice(null);
-    const parsed = await parseCsvFile(file);
-    setImportKey((current) => current + 1);
-    if (!parsed.ok) {
-      setError(parsed.message);
-      return;
-    }
-    const imported = parsed.rows
-      .map((row) => ({
-        email: fieldByNormalizedName(row, "email").toLowerCase(),
-        firstName: fieldByNormalizedName(row, "firstName"),
-        lastName: fieldByNormalizedName(row, "lastName"),
-        company: fieldByNormalizedName(row, "company"),
-        phone: fieldByNormalizedName(row, "phone"),
-        jobTitle: fieldByNormalizedName(row, "jobTitle"),
-        source: "import",
-      }))
-      .filter((row) => isEmail(row.email));
-    if (imported.length === 0) {
-      setError("The CSV has no valid email addresses.");
-      return;
-    }
-    setBusy(true);
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Delete ${selectedContacts.size} contact(s)?`)) return;
     try {
-      await requestJson("/api/contacts/import", { method: "POST", body: JSON.stringify({ contacts: imported }) });
-      await load(searched);
-      setNotice(`${imported.length} contacts imported. Import does not start a campaign.`);
-    } catch (importError) {
-      setError(getErrorMessage(importError));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleEnroll = async (contact: Person): Promise<void> => {
-    if (!campaignId) {
-      setError("Choose a campaign first.");
-      setNotice(null);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await requestJson<{ ok: true; enrolled: number; skipped: number }>(`/api/campaigns/${campaignId}/enroll`, {
-        method: "POST",
-        body: JSON.stringify({
-          people: [
-            {
-              email: contact.email,
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              company: contact.company,
-              phone: contact.phone,
-              jobTitle: contact.jobTitle,
-            },
-          ],
-        }),
+      await fetch("/api/contacts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedContacts) }),
       });
-      const campaign = campaigns.find((item) => item.id === campaignId);
-      if (result.enrolled === 0) {
-        setNotice(`${contact.email} is already in that campaign or is suppressed.`);
-      } else if (campaign?.status === "paused") {
-        setNotice(`${contact.email} was added. Sending starts when the campaign resumes.`);
-      } else {
-        setNotice(`${contact.email} was added to ${campaign?.name ?? "the campaign"}.`);
-      }
-    } catch (enrollError) {
-      setError(getErrorMessage(enrollError));
-    } finally {
-      setBusy(false);
+      setSelectedContacts(new Set());
+      void fetchContacts();
+    } catch {
+      /* ignore */
     }
   };
 
-  if (!contacts) {
-    return (
-      <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-8" aria-busy="true">
-        <span className="sr-only">Loading contacts</span>
-        <Skeleton className="h-10 w-40" />
-        <Skeleton className="h-40 w-full" />
-      </div>
-    );
-  }
+  const handleEdit = (contact: Person) => {
+    setEditingContact(contact);
+    setShowContactModal(true);
+  };
+
+  const handleAddNew = () => {
+    setEditingContact(null);
+    setShowContactModal(true);
+  };
+
+  const handleAddToCampaign = (contact: Person) => {
+    setSelectedContactForCampaign(contact);
+    setShowAddToCampaignModal(true);
+    setOpenMenuId(null);
+  };
+
+  const handleExportCurrentView = () => downloadCsv(buildCsv(contacts), "contacts-current-view");
+
+  const handleExportSelected = () => {
+    const rows = contacts.filter((c) => selectedContacts.has(c.id));
+    if (rows.length > 0) downloadCsv(buildCsv(rows), "contacts-selected");
+  };
+
+  useEffect(() => {
+    const handler = (event: MouseEvent) => {
+      if (openMenuId) {
+        const el = menuRefs.current[openMenuId];
+        if (el && !el.contains(event.target as Node)) setOpenMenuId(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openMenuId]);
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-8">
-      <div className="grid gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10 md:grid-cols-3 md:p-6">
-        <form
-          className="space-y-1.5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleSearch();
-          }}
-        >
-          <Label htmlFor="contact-search">Search</Label>
-          <div className="flex gap-2">
-            <Input
-              id="contact-search"
-              value={query}
-              placeholder="Name, email, or company"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <Button type="submit" variant="outline">
-              Search
-            </Button>
+    <div className="space-y-6 p-4 md:p-8 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-4">
+            <h1 className="text-[28px] font-bold text-foreground">Contacts</h1>
+            <span className="px-3 py-1 bg-muted rounded-lg text-[14px] font-semibold text-muted-foreground">
+              {totalContacts} Total
+            </span>
           </div>
-        </form>
-        <div className="space-y-1.5">
-          <Label htmlFor="contact-import">Import CSV</Label>
-          <Input
-            key={importKey}
-            id="contact-import"
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(event) => void handleImport(event.target.files?.[0])}
-          />
-          <p className="text-xs text-muted-foreground">Header row required. Import saves contacts only.</p>
+          <p className="text-[15px] text-muted-foreground mt-1">Manage and organize your contact database</p>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="enroll-campaign">Campaign</Label>
-          <Select value={campaignId || undefined} onValueChange={setCampaignId} disabled={campaigns.length === 0}>
-            <SelectTrigger id="enroll-campaign" className="w-full">
-              <SelectValue placeholder={campaigns.length === 0 ? "No active campaigns" : "Choose a campaign"} />
-            </SelectTrigger>
-            <SelectContent>
-              {campaigns.map((campaign) => (
-                <SelectItem key={campaign.id} value={campaign.id}>
-                  {campaign.name}
-                  {campaign.status === "paused" ? " (paused)" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-3">
+          <button onClick={handleExportCurrentView}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-lg text-[14px] font-medium text-foreground hover:bg-muted transition-colors">
+            <Download size={16} /> Export
+          </button>
+          <button onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-lg text-[14px] font-medium text-foreground hover:bg-muted transition-colors">
+            <Upload size={16} /> Import
+          </button>
+          <button onClick={handleAddNew}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-[14px] font-semibold hover:bg-primary/90 transition-all shadow-sm">
+            <Plus size={16} /> Add Contact
+          </button>
         </div>
       </div>
 
-      <div aria-live="polite" className="space-y-3">
-        {error ? <StatusAlert variant="destructive" title="Could not update contacts" message={error} /> : null}
-        {notice ? <StatusAlert title="Contacts updated" message={notice} /> : null}
+      {/* Filters */}
+      <div className="bg-card rounded-xl border border-border p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+            <input type="search" placeholder="Search contacts..." value={searchQuery} onChange={handleSearch}
+              className="w-full px-4 py-2 pl-10 bg-muted border border-border rounded-lg text-[15px] text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:bg-card transition-all" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-muted-foreground" />
+            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); setSelectedContacts(new Set()); }}
+              className="px-3 py-2 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all">
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="lead">Lead</option>
+              <option value="customer">Customer</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] text-muted-foreground">Show</span>
+            <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); setSelectedContacts(new Set()); }}
+              className="px-3 py-2 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all">
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={500}>500</option>
+              <option value={1000}>1000</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <ul className="space-y-2">
-          {contacts.length === 0 ? (
-            <li className="rounded-xl bg-card p-6 text-sm text-muted-foreground ring-1 ring-foreground/10">
-              {searched.length > 0 ? `No contacts match "${searched}".` : "No contacts yet. Add one, or import a CSV."}
-            </li>
-          ) : null}
-          {contacts.map((contact) => (
-            <li key={contact.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{contact.displayName || contact.email}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {contact.email}
-                  {contact.company ? ` · ${contact.company}` : ""}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">{contact.status}</Badge>
-                <Button type="button" size="sm" variant="outline" onClick={() => handleEdit(contact)}>
-                  Edit
-                </Button>
-                <Button type="button" size="sm" disabled={busy || !campaignId} onClick={() => void handleEnroll(contact)}>
-                  Add to campaign
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <form
-          className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleSave();
-          }}
-        >
-          <h2 className="text-sm font-semibold">{editingId ? "Edit contact" : "New contact"}</h2>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-email">Email</Label>
-            <Input id="contact-email" type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+      {/* Bulk Actions */}
+      {selectedContacts.size > 0 && (
+        <div className="bg-primary text-primary-foreground rounded-xl p-4 flex items-center justify-between">
+          <span className="text-[15px] font-medium">{selectedContacts.size} contact(s) selected</span>
+          <div className="flex items-center gap-3">
+            <button onClick={handleExportSelected}
+              className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-[14px] font-medium transition-colors">
+              <Download size={16} /> Export Selected
+            </button>
+            <button onClick={() => setShowBulkAddToCampaignModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-[14px] font-medium transition-colors">
+              <Plus size={16} /> Add All to Campaign
+            </button>
+            <button onClick={handleDeleteSelected}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-[14px] font-medium transition-colors">
+              <Trash2 size={16} /> Delete Selected
+            </button>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-first">First name</Label>
-            <Input id="contact-first" value={form.firstName} onChange={(event) => setForm({ ...form, firstName: event.target.value })} />
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center text-muted-foreground">
+            <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+            <p className="mt-4 text-[15px]">Loading contacts...</p>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-last">Last name</Label>
-            <Input id="contact-last" value={form.lastName} onChange={(event) => setForm({ ...form, lastName: event.target.value })} />
+        ) : contacts.length === 0 ? (
+          <div className="p-12 text-center">
+            <AlertCircle size={48} className="text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-[15px] text-muted-foreground">No contacts found</p>
+            <button onClick={handleAddNew} className="mt-4 text-[14px] text-primary hover:text-primary/80 font-medium">
+              Add your first contact
+            </button>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-company">Company</Label>
-            <Input id="contact-company" value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-phone">Phone</Label>
-            <Input id="contact-phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-title">Job title</Label>
-            <Input id="contact-title" value={form.jobTitle} onChange={(event) => setForm({ ...form, jobTitle: event.target.value })} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-status">Status</Label>
-            <Select value={form.status} onValueChange={(value) => setForm({ ...form, status: value as ContactStatus })}>
-              <SelectTrigger id="contact-status" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statuses.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status}
-                  </SelectItem>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px]">
+              <thead className="bg-muted border-b border-border">
+                <tr>
+                  <th className="px-6 py-4 text-left">
+                    <input type="checkbox"
+                      checked={contacts.length > 0 && contacts.every((c) => selectedContacts.has(c.id))}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
+                  </th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold text-muted-foreground">Name</th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold text-muted-foreground">Email</th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold text-muted-foreground">Phone</th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold text-muted-foreground">Company</th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold text-muted-foreground">Source</th>
+                  <th className="px-6 py-4 text-right text-[13px] font-semibold text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {contacts.map((contact) => (
+                  <tr key={contact.id} className="hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <input type="checkbox" checked={selectedContacts.has(contact.id)}
+                        onChange={() => handleSelectContact(contact.id)}
+                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-semibold text-[14px] flex-shrink-0">
+                          {(contact.firstName?.[0] ?? contact.email[0]).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-[15px] font-medium text-foreground">
+                            {contact.firstName} {contact.lastName}
+                          </p>
+                          <p className="text-[13px] text-muted-foreground">{contact.jobTitle}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-[14px] text-foreground">{contact.email}</td>
+                    <td className="px-6 py-4 text-[14px] text-foreground">{contact.phone || "-"}</td>
+                    <td className="px-6 py-4 text-[14px] text-foreground">{contact.company || "-"}</td>
+                    <td className="px-6 py-4 text-[14px] text-muted-foreground">{contact.source || "-"}</td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => handleEdit(contact)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-foreground hover:text-primary transition-colors">
+                          <Edit size={14} /> Edit
+                        </button>
+                        <div className="relative" ref={(el) => { menuRefs.current[contact.id] = el; }}>
+                          <button onClick={() => setOpenMenuId(openMenuId === contact.id ? null : contact.id)}
+                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                            aria-label="More options">
+                            <MoreVertical size={16} />
+                          </button>
+                          {openMenuId === contact.id && (
+                            <div className="absolute right-0 mt-1 w-48 bg-card rounded-lg shadow-lg border border-border py-1 z-10">
+                              <button onClick={() => handleAddToCampaign(contact)}
+                                className="w-full text-left px-4 py-2 text-[13px] text-foreground hover:bg-muted transition-colors flex items-center gap-2">
+                                <Plus size={14} /> Add to Campaign
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-              </SelectContent>
-            </Select>
+              </tbody>
+            </table>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="contact-notes">Notes</Label>
-            <Textarea id="contact-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </div>
-          <div className="flex gap-2">
-            <Button type="submit" disabled={busy}>
-              {editingId ? "Save changes" : "Save contact"}
-            </Button>
-            {editingId ? (
-              <Button type="button" variant="outline" disabled={busy} onClick={handleCancelEdit}>
-                Cancel
-              </Button>
-            ) : null}
-          </div>
-        </form>
+        )}
       </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <p className="text-[14px] text-muted-foreground">
+          Showing {totalContacts === 0 ? 0 : (currentPage - 1) * pageSize + 1}-
+          {Math.min(currentPage * pageSize, totalContacts)} of {totalContacts}
+        </p>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); setSelectedContacts(new Set()); }}
+            disabled={currentPage <= 1}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-[14px] text-foreground hover:bg-muted disabled:opacity-60 disabled:cursor-not-allowed">
+            Previous
+          </button>
+          <span className="px-3 py-2 text-[14px] text-foreground">Page {currentPage} of {totalPages}</span>
+          <button onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); setSelectedContacts(new Set()); }}
+            disabled={currentPage >= totalPages}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-[14px] text-foreground hover:bg-muted disabled:opacity-60 disabled:cursor-not-allowed">
+            Next
+          </button>
+        </div>
+      </div>
+
+      {/* Modals */}
+      {showImportModal && <ImportContactsModal onClose={() => setShowImportModal(false)} onImportComplete={() => void fetchContacts()} />}
+
+      {showContactModal && (
+        <ContactModal
+          contact={editingContact}
+          onClose={() => { setShowContactModal(false); setEditingContact(null); }}
+          onSave={() => void fetchContacts()}
+        />
+      )}
+
+      {showAddToCampaignModal && selectedContactForCampaign && (
+        <AddToCampaignModal
+          isOpen={showAddToCampaignModal}
+          onClose={() => { setShowAddToCampaignModal(false); setSelectedContactForCampaign(null); }}
+          contactId={selectedContactForCampaign.id}
+          contacts={[selectedContactForCampaign]}
+          onSuccess={() => void fetchContacts()}
+        />
+      )}
+
+      {showBulkAddToCampaignModal && (
+        <AddToCampaignModal
+          isOpen={showBulkAddToCampaignModal}
+          onClose={() => { setShowBulkAddToCampaignModal(false); setSelectedContacts(new Set()); }}
+          contactIds={Array.from(selectedContacts)}
+          contacts={contacts.filter((c) => selectedContacts.has(c.id))}
+          onSuccess={() => { void fetchContacts(); setSelectedContacts(new Set()); }}
+        />
+      )}
     </div>
   );
 };
