@@ -37,7 +37,7 @@ const toPerson = (row: PersonRow): Person => ({
 });
 
 export const listPeople = async (query: string): Promise<Person[]> => {
-  const term = query.trim().toLowerCase();
+  const term = query.trim().toLowerCase().replace(/[\\%_]/g, "\\$&");
   const db = await getDb();
   const rows = (
     term.length === 0
@@ -45,8 +45,8 @@ export const listPeople = async (query: string): Promise<Person[]> => {
       : await db
           .prepare(
             `SELECT * FROM contacts
-             WHERE email LIKE ? OR lower(coalesce(first_name, '')) LIKE ? OR lower(coalesce(last_name, '')) LIKE ?
-                OR lower(coalesce(company, '')) LIKE ?
+             WHERE email LIKE ? ESCAPE '\\' OR lower(coalesce(first_name, '')) LIKE ? ESCAPE '\\'
+                OR lower(coalesce(last_name, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(company, '')) LIKE ? ESCAPE '\\'
              ORDER BY created_at DESC LIMIT 200`,
           )
           .all(`%${term}%`, `%${term}%`, `%${term}%`, `%${term}%`)
@@ -62,7 +62,25 @@ export const getPerson = async (id: string): Promise<Person> => {
   return toPerson(row);
 };
 
+const isUniqueEmail = (error: unknown): boolean => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23505" || code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+      return true;
+    }
+  }
+  return error instanceof Error && /unique|primary key/i.test(error.message);
+};
+
 export const createPerson = async (fields: PersonFields): Promise<Person> => {
+  const existing = await (
+    await getDb()
+  )
+    .prepare("SELECT id FROM contacts WHERE email = ?")
+    .get(fields.email.trim().toLowerCase());
+  if (existing) {
+    throw new ApiError(409, "VALIDATION", "A contact with this email already exists.", false);
+  }
   const id = await savePerson(fields);
   return getPerson(id);
 };
@@ -75,14 +93,15 @@ export const updatePerson = async (id: string, fields: PersonFields): Promise<Pe
   }
   const now = new Date().toISOString();
   const display = [fields.firstName, fields.lastName].filter((part) => part && part.trim().length > 0).join(" ");
-  await db
-    .prepare(
-      `UPDATE contacts
-       SET email = ?, first_name = ?, last_name = ?, display_name = ?, company = ?, phone = ?,
-           job_title = ?, status = ?, source = ?, notes = ?, updated_at = ?
-       WHERE id = ?`,
-    )
-    .run(
+  try {
+    await db
+      .prepare(
+        `UPDATE contacts
+         SET email = ?, first_name = ?, last_name = ?, display_name = ?, company = ?, phone = ?,
+             job_title = ?, status = ?, source = ?, notes = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
       fields.email.trim().toLowerCase(),
       fields.firstName?.trim() || null,
       fields.lastName?.trim() || null,
@@ -93,8 +112,14 @@ export const updatePerson = async (id: string, fields: PersonFields): Promise<Pe
       fields.status?.trim() || "active",
       fields.source?.trim() || null,
       fields.notes?.trim() || null,
-      now,
-      id,
-    );
+        now,
+        id,
+      );
+  } catch (error) {
+    if (isUniqueEmail(error)) {
+      throw new ApiError(409, "VALIDATION", "A contact with this email already exists.", false);
+    }
+    throw error;
+  }
   return getPerson(id);
 };

@@ -24,6 +24,16 @@ const blank = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const isUniqueEnrollment = (error: unknown): boolean => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23505" || code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+      return true;
+    }
+  }
+  return error instanceof Error && /unique|primary key/i.test(error.message);
+};
+
 export const savePerson = async (fields: PersonFields, createdByTouchedAt = new Date().toISOString()): Promise<string> => {
   const db = await getDb();
   const email = fields.email.trim().toLowerCase();
@@ -91,12 +101,19 @@ export const enrollPerson = async (
   }
 
   const now = new Date().toISOString();
-  await db
-    .prepare(
-      `INSERT INTO campaign_contacts (id, campaign_id, contact_id, status, current_sequence, enrolled_at)
-       VALUES (?, ?, ?, 'enrolled', 0, ?)`,
-    )
-    .run(crypto.randomUUID(), campaignId, contactId, now);
+  try {
+    await db
+      .prepare(
+        `INSERT INTO campaign_contacts (id, campaign_id, contact_id, status, current_sequence, enrolled_at)
+         VALUES (?, ?, ?, 'enrolled', 0, ?)`,
+      )
+      .run(crypto.randomUUID(), campaignId, contactId, now);
+  } catch (error) {
+    if (isUniqueEnrollment(error)) {
+      return { contactId, alreadyEnrolled: true };
+    }
+    throw error;
+  }
 
   if (campaign.status === "active") {
     await scheduleNextMessage(db, campaignId, contactId, 0, new Date(), createdBy);

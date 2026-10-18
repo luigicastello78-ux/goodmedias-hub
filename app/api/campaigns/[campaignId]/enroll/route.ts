@@ -1,4 +1,4 @@
-import { toErrorResponse } from "@/lib/api-error";
+import { ApiError, toErrorResponse } from "@/lib/api-error";
 import { enrollMany, listEnrolled } from "@/lib/campaign-enrollment";
 import { enrollSchema } from "@/lib/campaign-schema";
 import { getCampaign } from "@/lib/campaigns";
@@ -25,6 +25,9 @@ export const POST = async (request: Request, context: RouteContext): Promise<Res
   try {
     const { campaignId } = await context.params;
     const payload = parseBody(enrollSchema, await readJson(request));
+    if (!payload.distribution && (payload.people?.length ?? 0) === 0) {
+      throw new ApiError(400, "VALIDATION", "Add at least one person.", false);
+    }
     const createdBy = await currentUserId();
     if (payload.distribution) {
       const distribution = await createDistribution({

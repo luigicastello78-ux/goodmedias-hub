@@ -321,6 +321,8 @@ export const resumeCampaign = async (id: string): Promise<CampaignDetail> => {
       .run(now.toISOString(), id);
   });
 
+  const { startUnscheduledEnrollments } = await import("@/lib/campaign-sequence");
+  await startUnscheduledEnrollments(id, null);
   return getCampaign(id);
 };
 

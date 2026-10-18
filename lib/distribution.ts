@@ -218,6 +218,11 @@ const releaseDueBatch = async (batch: BatchRow, createdBy: string | null): Promi
   if (batch.status === "paused" || batch.status === "completed") {
     return 0;
   }
+  const db = await getDb();
+  const campaign = (await db.prepare("SELECT status FROM campaigns WHERE id = ?").get(batch.campaign_id)) as { status: string } | null;
+  if (!campaign || campaign.status !== "active") {
+    return 0;
+  }
   const last = asIso(batch.last_drip_sent_at);
   if (last) {
     const nextAt = new Date(last).getTime() + Number(batch.drip_interval_minutes) * 60_000;
@@ -238,15 +243,16 @@ const releaseDueBatch = async (batch: BatchRow, createdBy: string | null): Promi
   return releaseContacts(batch, Number(batch.drip_contacts_per_batch), createdBy);
 };
 
-export const processDripDistributions = async (): Promise<number> => {
+export const processDripDistributions = async (campaignId?: string): Promise<number> => {
   const rows = (await (
     await getDb()
   )
     .prepare(
       `SELECT * FROM batch_distributions
-       WHERE execution_type = 'drip' AND status IN ('pending', 'processing')`,
+       WHERE execution_type = 'drip' AND status IN ('pending', 'processing')
+         ${campaignId ? "AND campaign_id = ?" : ""}`,
     )
-    .all()) as BatchRow[];
+    .all(...(campaignId ? [campaignId] : []))) as BatchRow[];
   let released = 0;
   for (const row of rows) {
     released += await releaseDueBatch(row, null);

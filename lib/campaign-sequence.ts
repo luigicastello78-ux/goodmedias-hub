@@ -174,6 +174,16 @@ const deliverStep = async (
   }
 };
 
+const isUniqueError = (error: unknown): boolean => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: string }).code;
+    if (code === "23505" || code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+      return true;
+    }
+  }
+  return error instanceof Error && /unique|primary key/i.test(error.message);
+};
+
 const queueStep = async (
   db: AppDatabase,
   campaign: CampaignSendRow,
@@ -184,25 +194,32 @@ const queueStep = async (
   const contact = toMergeContact(person);
   const fallbacks = fallbacksFrom(campaign.merge_tag_fallbacks);
   const now = new Date().toISOString();
-  await db
-    .prepare(
-      `INSERT INTO message_queue (
-         id, campaign_id, contact_id, sequence_id, subject, body_text, body_html,
-         scheduled_for, status, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    )
-    .run(
-      crypto.randomUUID(),
-      campaign.id,
-      person.id,
-      step.id,
-      replaceTags(step.subject ?? "", contact, fallbacks),
-      replaceTags(step.body_text ?? "", contact, fallbacks),
-      step.body_html ? replaceTags(step.body_html, contact, fallbacks) : null,
-      scheduledFor,
-      now,
-      now,
-    );
+  try {
+    await db
+      .prepare(
+        `INSERT INTO message_queue (
+           id, campaign_id, contact_id, sequence_id, subject, body_text, body_html,
+           scheduled_for, status, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        campaign.id,
+        person.id,
+        step.id,
+        replaceTags(step.subject ?? "", contact, fallbacks),
+        replaceTags(step.body_text ?? "", contact, fallbacks),
+        step.body_html ? replaceTags(step.body_html, contact, fallbacks) : null,
+        scheduledFor,
+        now,
+        now,
+      );
+  } catch (error) {
+    if (isUniqueError(error)) {
+      return;
+    }
+    throw error;
+  }
 };
 
 export const scheduleNextMessage = async (
@@ -251,6 +268,18 @@ export const scheduleNextMessage = async (
 
 export const dispatchQueuedMessage = async (queueId: string, createdBy: string | null = null): Promise<void> => {
   const db = await getDb();
+  const claimedAt = new Date().toISOString();
+  const claimed = await db
+    .prepare(
+      `UPDATE message_queue
+       SET status = 'processing', attempts = attempts + 1, updated_at = ?
+       WHERE id = ? AND status IN ('pending', 'unknown')`,
+    )
+    .run(claimedAt, queueId);
+  if (claimed.changes === 0) {
+    return;
+  }
+
   const row = (await db
     .prepare(
       `SELECT queue.id, queue.campaign_id, queue.contact_id, queue.sequence_id, queue.subject, queue.body_text, queue.body_html,
@@ -281,6 +310,9 @@ export const dispatchQueuedMessage = async (queueId: string, createdBy: string |
   } | null;
 
   if (!row || row.campaign_status !== "active") {
+    await db
+      .prepare("UPDATE message_queue SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'processing'")
+      .run(new Date().toISOString(), queueId);
     return;
   }
   if (row.status === "sent") {
@@ -288,7 +320,6 @@ export const dispatchQueuedMessage = async (queueId: string, createdBy: string |
   }
 
   const now = new Date().toISOString();
-  await db.prepare("UPDATE message_queue SET status = 'processing', attempts = attempts + 1, updated_at = ? WHERE id = ?").run(now, row.id);
   const displayName = [row.first_name, row.last_name].filter((part) => part && part.trim().length > 0).join(" ");
 
   try {
@@ -327,8 +358,13 @@ export const dispatchQueuedMessage = async (queueId: string, createdBy: string |
   }
 };
 
-export const processDueQueue = async (now = new Date()): Promise<number> => {
+export const processDueQueue = async (now = new Date(), campaignId?: string): Promise<number> => {
   const db = await getDb();
+  const staleBefore = new Date(now.getTime() - 2 * 60 * 1000).toISOString();
+  await db
+    .prepare("UPDATE message_queue SET status = 'unknown', updated_at = ? WHERE status = 'processing' AND updated_at <= ?")
+    .run(now.toISOString(), staleBefore);
+  const scoped = Boolean(campaignId);
   const due = (await db
     .prepare(
       `SELECT queue.id
@@ -337,15 +373,32 @@ export const processDueQueue = async (now = new Date()): Promise<number> => {
        WHERE queue.status IN ('pending', 'unknown')
          AND queue.scheduled_for <= ?
          AND campaigns.status = 'active'
+         ${scoped ? "AND queue.campaign_id = ?" : ""}
        ORDER BY queue.scheduled_for ASC
        LIMIT 50`,
     )
-    .all(now.toISOString())) as Array<{ id: string }>;
+    .all(...(scoped ? [now.toISOString(), campaignId] : [now.toISOString()]))) as Array<{ id: string }>;
 
   for (const item of due) {
     await dispatchQueuedMessage(item.id, null);
   }
   return due.length;
+};
+
+export const startUnscheduledEnrollments = async (campaignId: string, createdBy: string | null): Promise<void> => {
+  const db = await getDb();
+  const people = (await db
+    .prepare("SELECT contact_id FROM campaign_contacts WHERE campaign_id = ? AND status = 'enrolled'")
+    .all(campaignId)) as Array<{ contact_id: string }>;
+  for (const person of people) {
+    const existing = await db
+      .prepare("SELECT id FROM message_queue WHERE campaign_id = ? AND contact_id = ? LIMIT 1")
+      .get(campaignId, person.contact_id);
+    if (existing) {
+      continue;
+    }
+    await scheduleNextMessage(db, campaignId, person.contact_id, 0, new Date(), createdBy);
+  }
 };
 
 export const activateAndStart = async (campaignId: string, createdBy: string | null): Promise<void> => {

@@ -33,6 +33,20 @@ export const toErrorResponse = (error: unknown): NextResponse<N8nErrorResponse> 
     );
   }
 
+  if (typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "22P02") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "VALIDATION",
+          message: "That id is not valid.",
+          retryable: false,
+        },
+      },
+      { status: 400 },
+    );
+  }
+
   const message = error instanceof Error ? error.message : "Unknown error";
   console.error(`Unhandled route error: ${message}`);
 

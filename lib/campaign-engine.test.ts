@@ -122,15 +122,38 @@ describe("campaign sequence", () => {
 
     expect(await listOutboundMessages()).toHaveLength(1);
     expect(await processDripDistributions()).toBe(0);
-    expect(await listOutboundMessages()).toHaveLength(1);
 
     const db = await getDb();
+    await pauseCampaign(campaign.id);
     await db
       .prepare("UPDATE batch_distributions SET last_drip_sent_at = ? WHERE campaign_id = ?")
       .run(new Date(Date.now() - 31 * 60 * 1000).toISOString(), campaign.id);
+    expect(await processDripDistributions()).toBe(0);
+    expect(await listOutboundMessages()).toHaveLength(1);
+
+    await resumeCampaign(campaign.id);
     expect(await processDripDistributions()).toBe(1);
     const sent = await listOutboundMessages();
     expect(sent).toHaveLength(2);
     expect(new Set(sent.map((message) => message.toEmail)).size).toBe(2);
+  });
+
+  it("does not send a follow-up that another worker already claimed", async () => {
+    const campaign = await saveCampaign(draft, null);
+    await activate(campaign.id);
+    await enrollPerson(campaign.id, { email: "sam@contoso.com", firstName: "Sam" }, null);
+    const db = await getDb();
+    await db
+      .prepare("UPDATE message_queue SET status = 'processing', scheduled_for = ?, updated_at = ? WHERE campaign_id = ? AND status = 'pending'")
+      .run(new Date(Date.now() - 60_000).toISOString(), new Date().toISOString(), campaign.id);
+
+    expect(await processDueQueue()).toBe(0);
+    expect(await listOutboundMessages()).toHaveLength(1);
+
+    await db
+      .prepare("UPDATE message_queue SET updated_at = ? WHERE campaign_id = ? AND status = 'processing'")
+      .run(new Date(Date.now() - 3 * 60 * 1000).toISOString(), campaign.id);
+    expect(await processDueQueue()).toBe(1);
+    expect(await listOutboundMessages()).toHaveLength(2);
   });
 });
