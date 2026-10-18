@@ -42,8 +42,12 @@ let sqlitePath: string | null = null;
 let pool: Pool | null = null;
 let postgresReady: Promise<void> | null = null;
 
-const postgresEnabled = (): boolean =>
-  Boolean(process.env.DATABASE_URL?.trim()) && !process.env.BULK_DB_PATH?.trim();
+const postgresEnabled = (): boolean => {
+  if (process.env.VERCEL) {
+    return true;
+  }
+  return Boolean(process.env.DATABASE_URL?.trim()) && !process.env.BULK_DB_PATH?.trim();
+};
 
 const toPostgresSql = (sql: string): string => {
   let index = 0;

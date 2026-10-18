@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 
 import type { N8nErrorCode, N8nErrorResponse } from "@/types/n8n";
 
@@ -19,6 +20,7 @@ export class ApiError extends Error {
 }
 
 export const toErrorResponse = (error: unknown): NextResponse<N8nErrorResponse> => {
+  unstable_rethrow(error);
   if (error instanceof ApiError) {
     return NextResponse.json(
       {
@@ -44,6 +46,20 @@ export const toErrorResponse = (error: unknown): NextResponse<N8nErrorResponse> 
         },
       },
       { status: 400 },
+    );
+  }
+
+  if (error instanceof Error && /DATABASE_URL|NEON_AUTH_/.test(error.message)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "UPSTREAM",
+          message: error.message,
+          retryable: false,
+        },
+      },
+      { status: 500 },
     );
   }
 
