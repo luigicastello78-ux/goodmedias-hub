@@ -23,8 +23,6 @@ import {
 
 import { StatusAlert } from "@/components/status-alert";
 import { getErrorMessage, requestJson } from "@/lib/api-client";
-import { fieldByNormalizedName } from "@/lib/bulk-contacts";
-import { parseCsvFile } from "@/lib/csv";
 import { isEmail } from "@/lib/email";
 import { formatTimestamp } from "@/lib/format";
 import type {
@@ -35,15 +33,6 @@ import type {
   DistributionSummary,
   EnrolledContact,
 } from "@/types/campaigns";
-
-interface PersonInput {
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  company?: string;
-  phone?: string;
-  jobTitle?: string;
-}
 
 interface EditorStep extends CampaignStepInput {
   key: string;
@@ -115,16 +104,6 @@ export const SequenceCampaigns = () => {
   const [senderEmail, setSenderEmail] = useState("");
   const [senderName, setSenderName] = useState("");
   const [steps, setSteps] = useState<EditorStep[]>([emptyStep()]);
-  const [audience, setAudience] = useState<"one" | "csv">("one");
-  const [oneEmail, setOneEmail] = useState("");
-  const [oneName, setOneName] = useState("");
-  const [csvPeople, setCsvPeople] = useState<PersonInput[]>([]);
-  const [csvSkipped, setCsvSkipped] = useState(0);
-  const [csvInputKey, setCsvInputKey] = useState(0);
-  const [executionType, setExecutionType] = useState<"immediate" | "drip">("drip");
-  const [dripCount, setDripCount] = useState(10);
-  const [dripMinutes, setDripMinutes] = useState(5);
-  const [windowEnabled, setWindowEnabled] = useState(false);
   const requestId = useRef(0);
 
   const locked = detail?.status === "completed";
@@ -187,14 +166,6 @@ export const SequenceCampaigns = () => {
     applyDetail(campaignId, token, campaignData.campaign, contactData.contacts, campaignData.distributions);
   };
 
-  const clearAudience = (): void => {
-    setOneEmail("");
-    setOneName("");
-    setCsvPeople([]);
-    setCsvSkipped(0);
-    setCsvInputKey((current) => current + 1);
-  };
-
   const handleSelect = (campaignId: string): void => {
     const token = requestId.current + 1;
     requestId.current = token;
@@ -204,7 +175,6 @@ export const SequenceCampaigns = () => {
     setError(null);
     setNotice(null);
     setConfirmArchive(false);
-    clearAudience();
     void loadDetail(campaignId, token).catch((loadError: unknown) => {
       if (requestId.current === token) {
         setDetailLoading(false);
@@ -228,7 +198,6 @@ export const SequenceCampaigns = () => {
     setNotice(null);
     setError(null);
     setConfirmArchive(false);
-    clearAudience();
   };
 
   const handleBackToList = (): void => {
@@ -261,36 +230,6 @@ export const SequenceCampaigns = () => {
       next.splice(target, 0, item);
       return next;
     });
-  };
-
-  const handleCsv = async (file: File | undefined): Promise<void> => {
-    if (!file) return;
-    const parsed = await parseCsvFile(file);
-    if (!parsed.ok) {
-      setCsvPeople([]);
-      setError(parsed.message);
-      return;
-    }
-    const people: PersonInput[] = [];
-    let skipped = 0;
-    for (const row of parsed.rows) {
-      const email = fieldByNormalizedName(row, "email").toLowerCase();
-      if (!isEmail(email)) {
-        skipped += 1;
-        continue;
-      }
-      people.push({
-        email,
-        firstName: fieldByNormalizedName(row, "firstName"),
-        lastName: fieldByNormalizedName(row, "lastName"),
-        company: fieldByNormalizedName(row, "company"),
-        phone: fieldByNormalizedName(row, "phone"),
-        jobTitle: fieldByNormalizedName(row, "jobTitle"),
-      });
-    }
-    setCsvPeople(people);
-    setCsvSkipped(skipped);
-    setError(people.length === 0 ? "The CSV has no valid email addresses." : null);
   };
 
   const payloadSteps = (): CampaignStepInput[] =>
@@ -326,52 +265,6 @@ export const SequenceCampaigns = () => {
     return saved.campaign.id;
   };
 
-  const audienceProblem = (): string | null => {
-    if (audience === "one") {
-      if (oneEmail.trim().length === 0) return "Enter an email address to add.";
-      if (!isEmail(oneEmail)) return "That recipient address is not valid.";
-      return null;
-    }
-    if (csvPeople.length === 0) return "Upload a CSV with at least one valid email address.";
-    if (executionType === "drip" && (dripCount < 1 || dripMinutes < 1)) return "Drip size and interval must be at least 1.";
-    return null;
-  };
-
-  const enrollAudience = async (campaignId: string, sending: boolean): Promise<string> => {
-    if (audience === "one") {
-      const [firstName, ...rest] = oneName.trim().split(/\s+/);
-      const result = await requestJson<{ ok: true; enrolled: number; skipped: number }>(`/api/campaigns/${campaignId}/enroll`, {
-        method: "POST",
-        body: JSON.stringify({
-          people: [{ email: oneEmail.trim(), firstName: firstName || null, lastName: rest.join(" ") || null }],
-        }),
-      });
-      if (result.skipped > 0 && result.enrolled === 0) return "That address is already in this campaign or is suppressed.";
-      return sending ? "The address was added. Due mail was posted to the n8n webhook." : "The address was added. Sending starts when you resume.";
-    }
-    const distribution = await requestJson<{ ok: true; distribution: DistributionSummary }>(`/api/campaigns/${campaignId}/enroll`, {
-      method: "POST",
-      body: JSON.stringify({
-        distribution: {
-          name: name.trim() || "Distribution",
-          executionType,
-          contacts: csvPeople,
-          dripContactsPerBatch: clampInt(String(dripCount), 1, 500),
-          dripIntervalMinutes: clampInt(String(dripMinutes), 1, 1440),
-          sendWindowEnabled: windowEnabled,
-          sendWindowDays: [1, 2, 3, 4, 5],
-          sendWindowStartHour: 9,
-          sendWindowEndHour: 17,
-          sendWindowTimezone: "Europe/Skopje",
-        },
-      }),
-    });
-    const batch = distribution.distribution;
-    if (batch.executionType === "drip" && batch.processedContacts < batch.totalContacts)
-      return `Released ${batch.processedContacts} of ${batch.totalContacts}. The rest follow the drip schedule.`;
-    return `Released ${batch.processedContacts} of ${batch.totalContacts}.`;
-  };
-
   const refresh = async (campaignId: string): Promise<void> => {
     const token = requestId.current;
     setSelectedId(campaignId);
@@ -393,30 +286,13 @@ export const SequenceCampaigns = () => {
   const handleActivate = async (): Promise<void> => {
     const problem = sequenceProblem(name, senderEmail, steps);
     if (problem) { setError(problem); setNotice(null); return; }
-    const adding = audience === "csv" || oneEmail.trim().length > 0;
-    if (adding) { const audienceError = audienceProblem(); if (audienceError) { setError(audienceError); setNotice(null); return; } }
     setBusy(true); setError(null); setNotice(null);
     try {
       const campaignId = await saveCurrent();
       await requestJson(`/api/campaigns/${campaignId}/activate`, { method: "POST" });
-      const message = adding ? await enrollAudience(campaignId, true) : "Campaign is active. Add a person when you are ready to send.";
-      clearAudience();
       await refresh(campaignId);
-      setNotice(message);
+      setNotice("Campaign is active. Distribute contacts from the Distribution page to start sending.");
     } catch (startError) { setError(getErrorMessage(startError)); } finally { setBusy(false); }
-  };
-
-  const handleAddPeople = async (): Promise<void> => {
-    if (!selectedId) return;
-    const audienceError = audienceProblem();
-    if (audienceError) { setError(audienceError); setNotice(null); return; }
-    setBusy(true); setError(null); setNotice(null);
-    try {
-      const message = await enrollAudience(selectedId, detail?.status === "active");
-      clearAudience();
-      await refresh(selectedId);
-      setNotice(message);
-    } catch (addError) { setError(getErrorMessage(addError)); } finally { setBusy(false); }
   };
 
   const handleStatus = async (action: "pause" | "resume" | "process"): Promise<void> => {
@@ -601,77 +477,9 @@ export const SequenceCampaigns = () => {
             )}
           </div>
 
-          {/* Audience */}
           {locked ? (
             <p className="text-[14px] text-muted-foreground">This campaign is finished. The sequence can no longer be changed.</p>
-          ) : (
-            <div className="border border-border rounded-lg p-4 space-y-4">
-              <h3 className="text-[15px] font-semibold text-foreground">
-                {detail?.status === "active" || detail?.status === "paused" ? "Add People" : "Audience"}
-              </h3>
-              <div className="flex gap-2">
-                <button onClick={() => setAudience("one")}
-                  className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${audience === "one" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-muted/80"}`}>
-                  One email
-                </button>
-                <button onClick={() => setAudience("csv")}
-                  className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${audience === "csv" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-muted/80"}`}>
-                  CSV upload
-                </button>
-              </div>
-              {audience === "one" ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1"><label className="text-[13px] text-muted-foreground">Email</label>
-                    <input type="email" value={oneEmail} onChange={(e) => setOneEmail(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
-                  </div>
-                  <div className="space-y-1"><label className="text-[13px] text-muted-foreground">Name</label>
-                    <input type="text" value={oneName} onChange={(e) => setOneName(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[13px] text-muted-foreground">CSV file</label>
-                    <input key={csvInputKey} type="file" accept=".csv,text/csv"
-                      onChange={(e) => { const file = e.target.files?.[0]; void handleCsv(file); }}
-                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-[14px] text-foreground" />
-                    <p className="text-[12px] text-muted-foreground">Use a header row. Email is required. First name, last name, company, phone, and job title are optional.</p>
-                  </div>
-                  <p className="text-[14px] text-muted-foreground">
-                    {csvPeople.length === 0 ? "No file loaded." : `${csvPeople.length} valid addresses${csvSkipped > 0 ? `, ${csvSkipped} skipped` : ""}.`}
-                  </p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setExecutionType("immediate")}
-                      className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${executionType === "immediate" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-muted/80"}`}>
-                      Send all now
-                    </button>
-                    <button onClick={() => setExecutionType("drip")}
-                      className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${executionType === "drip" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-muted/80"}`}>
-                      Drip
-                    </button>
-                  </div>
-                  {executionType === "drip" ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1"><label className="text-[13px] text-muted-foreground">Contacts each release</label>
-                        <input type="number" min={1} value={dripCount} onChange={(e) => setDripCount(clampInt(e.target.value, 1, 500))}
-                          className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
-                      </div>
-                      <div className="space-y-1"><label className="text-[13px] text-muted-foreground">Minutes between releases</label>
-                        <input type="number" min={1} value={dripMinutes} onChange={(e) => setDripMinutes(clampInt(e.target.value, 1, 1440))}
-                          className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-[14px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
-                      </div>
-                      <div className="flex items-center gap-2 sm:col-span-2">
-                        <input type="checkbox" checked={windowEnabled} onChange={(e) => setWindowEnabled(e.target.checked)} className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
-                        <label className="text-[13px] text-foreground">Only weekdays, 9:00–17:00 Europe/Skopje</label>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          )}
+          ) : null}
 
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-3">
@@ -685,12 +493,6 @@ export const SequenceCampaigns = () => {
               <button disabled={busy} onClick={() => void handleActivate()}
                 className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-[14px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
                 Activate
-              </button>
-            ) : null}
-            {detail?.status === "active" || detail?.status === "paused" ? (
-              <button disabled={busy} onClick={() => void handleAddPeople()}
-                className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-[14px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
-                Add People
               </button>
             ) : null}
             {detail?.status === "active" ? (
